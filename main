@@ -1,0 +1,152 @@
+-- ==========================================
+-- INSTANT SHOOT RAYCAST TO MURDER BY BPHONG0946
+-- ==========================================
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+-- Hàm kiểm tra xem LocalPlayer có súng không
+local function HasGunInInventory()
+    if not LocalPlayer.Character then return false end
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local character = LocalPlayer.Character
+    
+    for _, item in ipairs(character:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("gun") or item.Name:lower():find("revolver")) then
+            return true
+        end
+    end
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item.Name:lower():find("gun") or item.Name:lower():find("revolver") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Hàm kiểm tra Murderer
+local function IsMurderer(player)
+    if not player.Character then return false end
+    local backpack = player:FindFirstChild("Backpack")
+    local character = player.Character
+    
+    for _, item in ipairs(character:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("gun") or item.Name:lower():find("revolver")) then
+            return true
+        end
+    end
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item.Name:lower():find("gun") or item.Name:lower():find("revolver") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Hàm Wall Check
+local function HasLineOfSight(targetPart)
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Head") then return false end
+    local origin = LocalPlayer.Character.Head.Position
+    local direction = targetPart.Position - origin
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = RaycastParams.FilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    raycastParams.IgnoreWater = true
+    
+    local raycastResult = Workspace:Raycast(origin, direction, raycastParams)
+    
+    if not raycastResult or raycastResult.Instance:IsDescendantOf(targetPart.Parent) then
+        return true
+    end
+    return false
+end
+
+-- Hàm bắn bằng đường đạn/raycast (không dịch chuyển góc nhìn camera)
+local function ShootMurdererRaycast()
+    if not HasGunInInventory() then
+        return "NO_GUN"
+    end
+    
+    local targetFound = false
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            if IsMurderer(player) then
+                local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+                
+                if humanoidRootPart and humanoid and humanoid.Health > 0 then
+                    if HasLineOfSight(humanoidRootPart) then
+                        -- Tự động kích hoạt tool súng đang cầm mà không đổi góc nhìn màn hình
+                        local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                        if tool and (tool.Name:lower():find("gun") or tool.Name:lower():find("revolver")) then
+                            -- Nếu game hỗ trợ event bắn trực tiếp hoặc kích hoạt tool hướng tới vị trí
+                            tool:Activate()
+                        end
+                        targetFound = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    if targetFound then
+        return "SUCCESS"
+    else
+        return "NO_TARGET"
+    end
+end
+
+-- ==========================================
+-- TẠO GIAO DIỆN NÚT BẤM (CÓ THỂ KÉO THẢ)
+-- ==========================================
+if CoreGui:FindFirstChild("ShootButtonGUI") then
+    CoreGui.ShootButtonGUI:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "ShootButtonGUI"
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+
+local ActionBtn = Instance.new("TextButton")
+ActionBtn.Name = "ActionBtn"
+ActionBtn.Parent = ScreenGui
+ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
+ActionBtn.Position = UDim2.new(0.05, 0, 0.2, 0)
+ActionBtn.Size = UDim2.new(0, 160, 0, 45)
+ActionBtn.Font = Enum.Font.GothamBold
+ActionBtn.Text = "BẮN MURDER"
+ActionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ActionBtn.TextSize = 14
+ActionBtn.Draggable = true
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = ActionBtn
+
+ActionBtn.MouseButton1Click:Connect(function()
+    local result = ShootMurdererRaycast()
+    
+    if result == "NO_GUN" then
+        ActionBtn.Text = "KHÔNG CÓ SÚNG!"
+        ActionBtn.BackgroundColor3 = Color3.fromRGB(200, 120, 0)
+    elseif result == "SUCCESS" then
+        ActionBtn.Text = "🎯 ĐÃ BẮN TRÚNG!"
+        ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+    else
+        ActionBtn.Text = "❌ KHÔNG THẤY THAY!"
+        ActionBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+    end
+    
+    task.wait(1.2)
+    ActionBtn.Text = "BẮN MURDER"
+    ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
+end)
