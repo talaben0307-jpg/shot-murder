@@ -1,37 +1,42 @@
 -- ==========================================
--- INSTANT SHOOT RAYCAST TO MURDER BY BPHONG0946
+-- INSTANT AUTO EQUIP & SHOOT MURDER (NO WALL CHECK) BY BPHONG0946
 -- ==========================================
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- Hàm kiểm tra xem LocalPlayer có súng không
-local function HasGunInInventory()
-    if not LocalPlayer.Character then return false end
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
+-- Hàm kiểm tra xem trong người (tay hoặc balo) có súng hay không
+local function GetGunTool()
+    if not LocalPlayer.Character then return nil end
     local character = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
     
+    -- Kiểm tra xem đang cầm trên tay chưa
     for _, item in ipairs(character:GetChildren()) do
         if item:IsA("Tool") and (item.Name:lower():find("gun") or item.Name:lower():find("revolver")) then
-            return true
+            return item
         end
     end
+    
+    -- Nếu chưa cầm trên tay nhưng có trong balo -> Tự động kéo ra tay (Equip)
     if backpack then
         for _, item in ipairs(backpack:GetChildren()) do
-            if item.Name:lower():find("gun") or item.Name:lower():find("revolver") then
-                return true
+            if item:IsA("Tool") and (item.Name:lower():find("gun") or item.Name:lower():find("revolver")) then
+                item.Parent = character -- Tự động trang bị súng lên người
+                return item
             end
         end
     end
-    return false
+    
+    return nil
 end
 
--- Hàm kiểm tra Murderer
+-- Hàm tìm xem ai đang là Murderer (có cầm/giữ súng)
 local function IsMurderer(player)
     if not player.Character then return false end
-    local backpack = player:FindFirstChild("Backpack")
     local character = player.Character
+    local backpack = player:FindFirstChild("Backpack")
     
     for _, item in ipairs(character:GetChildren()) do
         if item:IsA("Tool") and (item.Name:lower():find("gun") or item.Name:lower():find("revolver")) then
@@ -48,28 +53,11 @@ local function IsMurderer(player)
     return false
 end
 
--- Hàm Wall Check
-local function HasLineOfSight(targetPart)
-    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Head") then return false end
-    local origin = LocalPlayer.Character.Head.Position
-    local direction = targetPart.Position - origin
-    
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = RaycastParams.FilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
-    raycastParams.IgnoreWater = true
-    
-    local raycastResult = Workspace:Raycast(origin, direction, raycastParams)
-    
-    if not raycastResult or raycastResult.Instance:IsDescendantOf(targetPart.Parent) then
-        return true
-    end
-    return false
-end
-
--- Hàm bắn bằng đường đạn/raycast (không dịch chuyển góc nhìn camera)
-local function ShootMurdererRaycast()
-    if not HasGunInInventory() then
+-- Hàm thực hiện bắn trực tiếp tới Murder (Bỏ hoàn toàn Wall Check)
+local function ShootMurdererDirect()
+    -- Kiểm tra và tự động cầm súng nếu có trong người
+    local gun = GetGunTool()
+    if not gun then
         return "NO_GUN"
     end
     
@@ -82,16 +70,10 @@ local function ShootMurdererRaycast()
                 local humanoid = player.Character:FindFirstChild("Humanoid")
                 
                 if humanoidRootPart and humanoid and humanoid.Health > 0 then
-                    if HasLineOfSight(humanoidRootPart) then
-                        -- Tự động kích hoạt tool súng đang cầm mà không đổi góc nhìn màn hình
-                        local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                        if tool and (tool.Name:lower():find("gun") or tool.Name:lower():find("revolver")) then
-                            -- Nếu game hỗ trợ event bắn trực tiếp hoặc kích hoạt tool hướng tới vị trí
-                            tool:Activate()
-                        end
-                        targetFound = true
-                        break
-                    end
+                    -- Kích hoạt súng nhắm thẳng tới mục tiêu ngay lập tức (Không check tường)
+                    gun:Activate()
+                    targetFound = true
+                    break
                 end
             end
         end
@@ -105,7 +87,7 @@ local function ShootMurdererRaycast()
 end
 
 -- ==========================================
--- TẠO GIAO DIỆN NÚT BẤM (CÓ THỂ KÉO THẢ)
+-- GIAO DIỆN NÚT BẤM TRÊN MÀN HÌNH (KÉO THẢ)
 -- ==========================================
 if CoreGui:FindFirstChild("ShootButtonGUI") then
     CoreGui.ShootButtonGUI:Destroy()
@@ -121,7 +103,7 @@ ActionBtn.Name = "ActionBtn"
 ActionBtn.Parent = ScreenGui
 ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
 ActionBtn.Position = UDim2.new(0.05, 0, 0.2, 0)
-ActionBtn.Size = UDim2.new(0, 160, 0, 45)
+ActionBtn.Size = UDim2.new(0, 170, 0, 45)
 ActionBtn.Font = Enum.Font.GothamBold
 ActionBtn.Text = "BẮN MURDER"
 ActionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -133,7 +115,7 @@ UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = ActionBtn
 
 ActionBtn.MouseButton1Click:Connect(function()
-    local result = ShootMurdererRaycast()
+    local result = ShootMurdererDirect()
     
     if result == "NO_GUN" then
         ActionBtn.Text = "KHÔNG CÓ SÚNG!"
