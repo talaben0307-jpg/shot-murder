@@ -1,11 +1,16 @@
 -- ==========================================
--- REMOTEVENT DIRECT SHOOT MURDER (WITH KEYBIND F) BY BPHONG0946
+-- SHIFTLOCK AUTO SHOOT MOBILE BY BPHONG0946
 -- ==========================================
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Trạng thái tính năng
+local AutoShootEnabled = false
+local IsShooting = false
 
 -- Hàm tự động tìm và kéo súng ra tay
 local function ForceEquipGun()
@@ -13,7 +18,6 @@ local function ForceEquipGun()
     local character = LocalPlayer.Character
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     
-    -- Kiểm tra trên tay
     for _, item in ipairs(character:GetChildren()) do
         if item:IsA("Tool") then
             local name = item.Name:lower()
@@ -23,7 +27,6 @@ local function ForceEquipGun()
         end
     end
     
-    -- Kiểm tra trong balo và kéo ra tay
     if backpack then
         for _, item in ipairs(backpack:GetChildren()) do
             if item:IsA("Tool") then
@@ -39,17 +42,38 @@ local function ForceEquipGun()
     return nil
 end
 
--- Hàm tìm mục tiêu (Murderer) chính xác
-local function GetMurderRootPart()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local character = player.Character
-            local backpack = player:FindFirstChild("Backpack")
-            local hrp = character:FindFirstChild("HumanoidRootPart")
-            
-            if hrp then
+-- Kiểm tra xem nhân vật có đang bật Shiftlock / Khóa góc nhìn hay không
+-- (Trên mobile, Shiftlock thường làm Camera có góc lệch hoặc tâm khóa giữa màn hình)
+local function IsShiftLockActive()
+    -- Kiểm tra cơ chế ShiftLock phổ biến trên mobile/roblox
+    if LocalPlayer.DevEnableMouseLock then
+        return true
+    end
+    return false
+end
+
+-- Hàm kiểm tra xem tâm màn hình có đang chĩa vào Murderer không
+local function GetTargetUnderCrosshair()
+    local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    raycastParams.IgnoreWater = true
+    
+    local raycastResult = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000, raycastParams)
+    
+    if raycastResult and raycastResult.Instance then
+        local hitModel = raycastResult.Instance:FindFirstAncestorOfClass("Model")
+        if hitModel then
+            local targetPlayer = Players:GetPlayerFromCharacter(hitModel)
+            if targetPlayer and targetPlayer ~= LocalPlayer then
+                -- Kiểm tra xem người đó có cầm dao (Murderer) không
+                local backpack = targetPlayer:FindFirstChild("Backpack")
                 local hasKnife = false
-                for _, item in ipairs(character:GetChildren()) do
+                
+                for _, item in ipairs(hitModel:GetChildren()) do
                     if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade") or item.Name:lower():find("dao")) then
                         hasKnife = true
                         break
@@ -64,19 +88,10 @@ local function GetMurderRootPart()
                     end
                 end
                 
+                -- Nếu thấy cầm dao hoặc bất kỳ ai khi bật chế độ ngắm
                 if hasKnife then
-                    return hrp
+                    return targetPlayer
                 end
-            end
-        end
-    end
-    
-    -- Fallback nếu chưa cầm dao
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                return hrp
             end
         end
     end
@@ -84,103 +99,83 @@ local function GetMurderRootPart()
     return nil
 end
 
--- Hàm bắn độc lập hoàn toàn với chuột và camera
-local function ShootWithoutMouse()
-    local gun = ForceEquipGun()
-    if not gun then
-        return "NO_GUN"
-    end
-    
-    local targetHRP = GetMurderRootPart()
-    if not targetHRP then
-        return "NO_TARGET"
-    end
-    
-    -- Đảm bảo súng đang cầm trên tay
-    if gun.Parent ~= LocalPlayer.Character then
-        gun.Parent = LocalPlayer.Character
-    end
-    
-    -- Tìm RemoteEvent bắn súng bên trong Tool
-    local shootEvent = nil
-    for _, descendant in ipairs(gun:GetDescendants()) do
-        if descendant:IsA("RemoteEvent") or descendant:IsA("RemoteFunction") then
-            local name = descendant.Name:lower()
-            if name:find("shoot") or name:find("gun") or name:find("fire") or name:find("bullet") then
-                shootEvent = descendant
-                break
-            end
-        end
-    end
-    
-    if shootEvent then
-        pcall(function()
-            if shootEvent:IsA("RemoteEvent") then
-                shootEvent:FireServer(targetHRP.Position)
-            elseif shootEvent:IsA("RemoteFunction") then
-                shootEvent:InvokeServer(targetHRP.Position)
-            end
-        end)
-    else
-        gun:Activate()
-    end
-    
-    return "SUCCESS"
-end
-
 -- ==========================================
--- GIAO DIỆN NÚT BẤM (KÉO THẢ) & KEYBIND F
+-- GIAO DIỆN UI (NÚT ON/OFF & CỤC TÂM NGẮM)
 -- ==========================================
-if CoreGui:FindFirstChild("ShootButtonGUI") then
-    CoreGui.ShootButtonGUI:Destroy()
+if CoreGui:FindFirstChild("ShiftLockShootGUI") then
+    CoreGui.ShiftLockShootGUI:Destroy()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "ShootButtonGUI"
+ScreenGui.Name = "ShiftLockShootGUI"
 ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
 
-local ActionBtn = Instance.new("TextButton")
-ActionBtn.Name = "ActionBtn"
-ActionBtn.Parent = ScreenGui
-ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
-ActionBtn.Position = UDim2.new(0.05, 0, 0.2, 0)
-ActionBtn.Size = UDim2.new(0, 170, 0, 45)
-ActionBtn.Font = Enum.Font.GothamBold
-ActionBtn.Text = "BẮN MURDER (F)"
-ActionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ActionBtn.TextSize = 14
-ActionBtn.Draggable = true
+-- Nút Bật/Tắt tính năng (Kéo thả được)
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Name = "ToggleBtn"
+ToggleBtn.Parent = ScreenGui
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+ToggleBtn.Position = UDim2.new(0.05, 0, 0.3, 0)
+ToggleBtn.Size = UDim2.new(0, 150, 0, 45)
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.Text = "AUTO SHOT: OFF"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.TextSize = 13
+ToggleBtn.Draggable = true
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 8)
-UICorner.Parent = ActionBtn
+local BtnCorner = Instance.new("UICorner")
+BtnCorner.CornerRadius = UDim.new(0, 8)
+BtnCorner.Parent = ToggleBtn
 
-local function ExecuteShot()
-    local result = ShootWithoutMouse()
-    
-    if result == "NO_GUN" then
-        ActionBtn.Text = "KHÔNG CÓ SÚNG!"
-        ActionBtn.BackgroundColor3 = Color3.fromRGB(200, 120, 0)
-    elseif result == "SUCCESS" then
-        ActionBtn.Text = "🎯 ĐÃ BẮN TRÚNG!"
-        ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+-- Cục tâm ngắm hiển thị ở giữa màn hình (Crosshair)
+local Crosshair = Instance.new("Frame")
+Crosshair.Name = "Crosshair"
+Crosshair.Parent = ScreenGui
+Crosshair.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+Crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+Crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
+Crosshair.Size = UDim2.new(0, 10, 0, 10)
+Crosshair.Visible = false -- Ban đầu ẩn, khi bật ON mới hiện
+
+local CrosshairCorner = Instance.new("UICorner")
+CrosshairCorner.CornerRadius = UDim.new(1, 0)
+CrosshairCorner.Parent = Crosshair
+
+-- Bật/Tắt qua nút bấm
+ToggleBtn.MouseButton1Click:Connect(function()
+    AutoShootEnabled = not AutoShootEnabled
+    if AutoShootEnabled then
+        ToggleBtn.Text = "AUTO SHOT: ON"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+        Crosshair.Visible = true
     else
-        ActionBtn.Text = "❌ KHÔNG CÓ MỤC TIÊU!"
-        ActionBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+        ToggleBtn.Text = "AUTO SHOT: OFF"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+        Crosshair.Visible = false
     end
+end)
+
+-- Vòng lặp kiểm tra liên tục (Chạy ngầm mượt mà)
+RunService.RenderStepped:Connect(function()
+    if not AutoShootEnabled or IsShooting then return end
     
-    task.wait(1.2)
-    ActionBtn.Text = "BẮN MURDER (F)"
-    ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
-end
-
--- Nhấn chuột vào nút trên màn hình
-ActionBtn.MouseButton1Click:Connect(ExecuteShot)
-
--- Nhấn phím F trên bàn phím
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Enum.KeyCode.F then
-        ExecuteShot()
+    -- Kiểm tra nếu đang có súng và tâm đang chĩa vào Murder
+    local gun = ForceEquipGun()
+    if gun then
+        local target = GetTargetUnderCrosshair()
+        if target then
+            IsShooting = true
+            
+            -- Đổi màu tâm ngắm thành xanh báo hiệu đã khóa mục tiêu
+            Crosshair.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+            
+            -- Kích hoạt bắn
+            gun:Activate()
+            
+            task.wait(1.5) -- Đợi thời gian hồi chiêu/hết đạn tránh spam liên tục
+            Crosshair.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            IsShooting = false
+        end
     end
 end)
