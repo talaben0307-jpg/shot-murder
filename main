@@ -1,17 +1,19 @@
 -- ==========================================
--- NO CAMERA MOVE AUTO SHOOT MURDER BY BPHONG0946
+-- REMOTEVENT DIRECT SHOOT MURDER (WITH KEYBIND F) BY BPHONG0946
 -- ==========================================
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
--- Hàm tự động lấy súng ra tay
+-- Hàm tự động tìm và kéo súng ra tay
 local function ForceEquipGun()
     if not LocalPlayer.Character then return nil end
     local character = LocalPlayer.Character
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     
+    -- Kiểm tra trên tay
     for _, item in ipairs(character:GetChildren()) do
         if item:IsA("Tool") then
             local name = item.Name:lower()
@@ -21,6 +23,7 @@ local function ForceEquipGun()
         end
     end
     
+    -- Kiểm tra trong balo và kéo ra tay
     if backpack then
         for _, item in ipairs(backpack:GetChildren()) do
             if item:IsA("Tool") then
@@ -36,8 +39,8 @@ local function ForceEquipGun()
     return nil
 end
 
--- Hàm tìm Murderer (người cầm dao/blade)
-local function GetMurdererPosition()
+-- Hàm tìm mục tiêu (Murderer) chính xác
+local function GetMurderRootPart()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             local character = player.Character
@@ -47,14 +50,14 @@ local function GetMurdererPosition()
             if hrp then
                 local hasKnife = false
                 for _, item in ipairs(character:GetChildren()) do
-                    if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
+                    if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade") or item.Name:lower():find("dao")) then
                         hasKnife = true
                         break
                     end
                 end
                 if not hasKnife and backpack then
                     for _, item in ipairs(backpack:GetChildren()) do
-                        if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade")) then
+                        if item:IsA("Tool") and (item.Name:lower():find("knife") or item.Name:lower():find("blade") or item.Name:lower():find("dao")) then
                             hasKnife = true
                             break
                         end
@@ -62,18 +65,18 @@ local function GetMurdererPosition()
                 end
                 
                 if hasKnife then
-                    return hrp.Position
+                    return hrp
                 end
             end
         end
     end
     
-    -- Fallback nếu chưa tìm thấy ai cầm dao rõ ràng
+    -- Fallback nếu chưa cầm dao
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             local hrp = player.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                return hrp.Position
+                return hrp
             end
         end
     end
@@ -81,39 +84,52 @@ local function GetMurdererPosition()
     return nil
 end
 
--- Hàm bắn không làm dịch chuyển camera
-local function ShootWithoutMovingCamera()
+-- Hàm bắn độc lập hoàn toàn với chuột và camera
+local function ShootWithoutMouse()
     local gun = ForceEquipGun()
     if not gun then
         return "NO_GUN"
     end
     
-    local targetPos = GetMurdererPosition()
-    if not targetPos then
+    local targetHRP = GetMurderRootPart()
+    if not targetHRP then
         return "NO_TARGET"
     end
     
-    -- Đảm bảo súng đang được cầm trên tay
+    -- Đảm bảo súng đang cầm trên tay
     if gun.Parent ~= LocalPlayer.Character then
         gun.Parent = LocalPlayer.Character
     end
     
-    -- Một số RemoteEvent hoặc Handle của súng trong MM2 hỗ trợ hướng đạn qua Handle
-    local handle = gun:FindFirstChild("Handle")
-    if handle and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
-        -- Kích hoạt tool mà không thay đổi CFrame của Camera
-        gun:Activate()
-        return "SUCCESS"
-    else
-        gun:Activate()
-        return "SUCCESS"
+    -- Tìm RemoteEvent bắn súng bên trong Tool
+    local shootEvent = nil
+    for _, descendant in ipairs(gun:GetDescendants()) do
+        if descendant:IsA("RemoteEvent") or descendant:IsA("RemoteFunction") then
+            local name = descendant.Name:lower()
+            if name:find("shoot") or name:find("gun") or name:find("fire") or name:find("bullet") then
+                shootEvent = descendant
+                break
+            end
+        end
     end
     
-    return "NO_TARGET"
+    if shootEvent then
+        pcall(function()
+            if shootEvent:IsA("RemoteEvent") then
+                shootEvent:FireServer(targetHRP.Position)
+            elseif shootEvent:IsA("RemoteFunction") then
+                shootEvent:InvokeServer(targetHRP.Position)
+            end
+        end)
+    else
+        gun:Activate()
+    end
+    
+    return "SUCCESS"
 end
 
 -- ==========================================
--- GIAO DIỆN NÚT BẤM (KÉO THẢ)
+-- GIAO DIỆN NÚT BẤM (KÉO THẢ) & KEYBIND F
 -- ==========================================
 if CoreGui:FindFirstChild("ShootButtonGUI") then
     CoreGui.ShootButtonGUI:Destroy()
@@ -131,7 +147,7 @@ ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
 ActionBtn.Position = UDim2.new(0.05, 0, 0.2, 0)
 ActionBtn.Size = UDim2.new(0, 170, 0, 45)
 ActionBtn.Font = Enum.Font.GothamBold
-ActionBtn.Text = "BẮN MURDER"
+ActionBtn.Text = "BẮN MURDER (F)"
 ActionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ActionBtn.TextSize = 14
 ActionBtn.Draggable = true
@@ -140,14 +156,14 @@ local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = ActionBtn
 
-ActionBtn.MouseButton1Click:Connect(function()
-    local result = ShootWithoutMovingCamera()
+local function ExecuteShot()
+    local result = ShootWithoutMouse()
     
     if result == "NO_GUN" then
         ActionBtn.Text = "KHÔNG CÓ SÚNG!"
         ActionBtn.BackgroundColor3 = Color3.fromRGB(200, 120, 0)
     elseif result == "SUCCESS" then
-        ActionBtn.Text = "🎯 ĐÃ BẮN!"
+        ActionBtn.Text = "🎯 ĐÃ BẮN TRÚNG!"
         ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
     else
         ActionBtn.Text = "❌ KHÔNG CÓ MỤC TIÊU!"
@@ -155,6 +171,16 @@ ActionBtn.MouseButton1Click:Connect(function()
     end
     
     task.wait(1.2)
-    ActionBtn.Text = "BẮN MURDER"
+    ActionBtn.Text = "BẮN MURDER (F)"
     ActionBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
+end
+
+-- Nhấn chuột vào nút trên màn hình
+ActionBtn.MouseButton1Click:Connect(ExecuteShot)
+
+-- Nhấn phím F trên bàn phím
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.F then
+        ExecuteShot()
+    end
 end)
